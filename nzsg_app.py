@@ -3,7 +3,6 @@ from __future__ import print_function
 import argparse
 import glob
 import os
-import scipy.misc
 import time
 import random
 import torch
@@ -19,8 +18,25 @@ import torchvision.utils as vutils
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from IPython.display import HTML
 from PIL import Image
+
+parser = argparse.ArgumentParser()
+
+# Dataset parameters
+parser.add_argument("-w", "--workers", type=int, default=2)
+parser.add_argument("-b", "--batch_size", type=int, default=64)
+parser.add_argument("-e", "--epochs", type=int, default=900)
+parser.add_argument("-nc", "--num_channels", type=int, default=3)
+parser.add_argument("-ngpu", "--ngpu", type=int, default=1)
+# Model parameters
+parser.add_argument("-ncf", "--ncf", type=int, default=6)
+parser.add_argument("-ngf", "--ngf", type=int, default=128)
+# Hyperparameters
+parser.add_argument("-lr", "--lr", type=float, default=1e-5)
+parser.add_argument("-lrC", "--lrC", type=float, default=1e-4)
+parser.add_argument("-be", "--beta", type=float, default=0.5)
+
+args, _ = parser.parse_known_args()
 
 # Set random seed for reproducibilityq
 manualSeed = 999
@@ -29,14 +45,10 @@ print("Random Seed: ", manualSeed)
 random.seed(manualSeed)
 torch.manual_seed(manualSeed)
 
-arch = ['triple-gan', 'nzsg']
-arch_ind = 1
-
-dset = ['CIFAR', 'MNIST', 'vg2monet', 'photo']
-dset_ind = 3
+dset = ['vg2monet', 'photo']
 
 # Root directories for dataset
-dataroot = '/home/amitkad/data'
+dataroot = 'data'
 imgroot = 'figs'
 modelroot = os.path.join(dataroot, dset[dset_ind], 'model')
 
@@ -46,24 +58,10 @@ if not os.path.exists(imgroot):
 if not os.path.exists(modelroot):
     os.mkdir(modelroot)
 
-
-# training parameters
-load = False
-workers = 2
-batch_size = 64
-num_epochs = 900
-beta1 = 0.5
-ngpu = 1
-lr = 1e-5
-lrC= 1e-4
-
 # model parameters
 n_classes = 2
 image_size = 128
-nc = 3
-img_shape = (nc, image_size, image_size)
-ngf = 128
-ncf = 6
+img_shape = (args.num_channels, image_size, image_size)
 
 def make_weights_for_balanced_classes(images, nclasses):
     count = [0] * nclasses
@@ -97,16 +95,14 @@ weights = make_weights_for_balanced_classes(dataset.imgs, len(dataset.classes))
 weights = torch.DoubleTensor(weights)
 sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, len(weights))
 
-
-# trainset, valset = torch.utils.data.random_split(dataset, [50000, 10000])
 # Create the dataloader
-trainloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
-                                         sampler=sampler, shuffle=False, num_workers=workers, drop_last=True)
+trainloader = torch.utils.data.DataLoader(dataset, batch_size=ags.batch_size,
+                                         sampler=sampler, shuffle=False, num_workers=args.workers, drop_last=True)
 
-trainloader2 = torch.utils.data.DataLoader(dataset2, batch_size=batch_size, shuffle=True, num_workers=workers,
+trainloader2 = torch.utils.data.DataLoader(dataset2, batch_size=args.batch_size, shuffle=True, num_workers=args.workers,
                                            drop_last=True)
 # Decide which device we want to run on
-device = torch.device("cuda:0" if (torch.cuda.is_available() and ngpu > 0) else "cpu")
+device = torch.device("cuda:0" if (torch.cuda.is_available() and args.ngpu > 0) else "cpu")
 
 # Get most recent model parameters
 model_files = glob.glob(os.path.join(modelroot, '*'))
@@ -147,7 +143,7 @@ def conv(c_in, c_out, k_size, stride=2, pad=1, bn=True):
 
 class G(nn.Module):
     """Generator for transfering from mnist to svhn"""
-    def __init__(self, conv_dim=ngf):
+    def __init__(self, conv_dim=args.ngf):
         super(G, self).__init__()
 
         self.label_emb = nn.Embedding(n_classes, 1)
@@ -189,9 +185,9 @@ else:
     netG.apply(weights_init)
     netGC.apply(weights_init)
 
-class Discriminator(nn.Module):
+class D1(nn.Module):
     def __init__(self):
-        super(Discriminator, self).__init__()
+        super(D, self).__init__()
 
         self.label_embedding = nn.Embedding(n_classes, n_classes)
 
@@ -214,9 +210,9 @@ class Discriminator(nn.Module):
         validity = self.model(d_in)
         return validity
 
-class Discriminator2(nn.Module):
+class D2(nn.Module):
     def __init__(self):
-        super(Discriminator2, self).__init__()
+        super(D2, self).__init__()
 
         self.model = nn.Sequential(
             nn.Linear(int(np.prod(img_shape)), 512),
@@ -237,8 +233,8 @@ class Discriminator2(nn.Module):
         return validity
 
 # Create the Discriminator
-netD = Discriminator().to(device)
-netDC = Discriminator2().to(device)
+netD = D1().to(device)
+netDC = D2().to(device)
 
 # Apply the weights_init function to randomly initialize all weights
 #  to mean=0, stdev=0.2.
@@ -249,13 +245,13 @@ else:
     netD.apply(weights_init)
     netDC.apply(weights_init)
 
-class Classifier(nn.Module):
+class C(nn.Module):
     def __init__(self, ngpu):
         self.ngpu = ngpu
-        super(Classifier, self).__init__()
-        self.conv1 = nn.Conv2d(nc, ncf, 5)
+        super(C, self).__init__()
+        self.conv1 = nn.Conv2d(nc, args.ncf, 5)
         self.pool = nn.MaxPool2d(5, 5)
-        self.conv2 = nn.Conv2d(ncf, 16, 5)
+        self.conv2 = nn.Conv2d(args.ncf, 16, 5)
         self.fc1 = nn.Linear(16 * 4 * 4, 120)
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, n_classes)
@@ -270,7 +266,7 @@ class Classifier(nn.Module):
         return x
 
 # Create the Classifier
-netC = Classifier(ngpu).to(device)
+netC = C(args.ngpu).to(device)
 
 # Apply the weights_init function to randomly initialize all weights
 #  to mean=0, stdev=0.2.
@@ -279,13 +275,12 @@ if load:
 else:
     netC.apply(weights_init)
 
-# Initialize BCELoss function
+# Initialize loss functions
 criterion = nn.BCELoss()
 criterion_class = nn.CrossEntropyLoss()
 criterion_cyc = nn.L1Loss()
 
-# Create batch of latent vectors that we will use to visualize
-#  the progression of the generator
+# Create batch of latent vectors that we will use to visualize the progression of the generator
 reps = 5
 fixed_class = torch.arange(start=0, end=n_classes, dtype=torch.long, device=device).repeat(reps)
 
@@ -293,15 +288,15 @@ fixed_class = torch.arange(start=0, end=n_classes, dtype=torch.long, device=devi
 real_label = 1
 fake_label = 0
 
-# Setup Adam optimizers for both G and D
-optimizerD = optim.Adam(netD.parameters(), lr=lr, betas=(beta1, 0.999))
-optimizerDC = optim.Adam(netDC.parameters(), lr=lr, betas=(beta1, 0.999))
-optimizerG = optim.Adam(netG.parameters(), lr=lr, betas=(beta1, 0.999))
-optimizerGC = optim.Adam(netGC.parameters(), lr=lr, betas=(beta1, 0.999))
-optimizerC = optim.Adam(netC.parameters(), lr=lrC, betas=(beta1, 0.999))
-schedulerC = torch.optim.lr_scheduler.StepLR(optimizerC, step_size=num_epochs / 3, gamma=0.5)
-schedulerG = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=num_epochs / 3, gamma=0.5)
-schedulerD = torch.optim.lr_scheduler.StepLR(optimizerD, step_size=num_epochs / 3, gamma=0.5)
+# Setup optimizers and schedulers 
+optimizerD = optim.Adam(netD.parameters(), lr=args.lr, betas=(args.beta, 0.999))
+optimizerDC = optim.Adam(netDC.parameters(), lr=args.lr, betas=(args.beta, 0.999))
+optimizerG = optim.Adam(netG.parameters(), lr=args.lr, betas=(args.beta, 0.999))
+optimizerGC = optim.Adam(netGC.parameters(), lr=args.lr, betas=(args.beta, 0.999))
+optimizerC = optim.Adam(netC.parameters(), lr=args.lrC, betas=(args.beta, 0.999))
+schedulerC = torch.optim.lr_scheduler.StepLR(optimizerC, step_size=args.epochs / 3, gamma=0.5)
+schedulerG = torch.optim.lr_scheduler.StepLR(optimizerG, step_size=args.epochs / 3, gamma=0.5)
+schedulerD = torch.optim.lr_scheduler.StepLR(optimizerD, step_size=args.epochs / 3, gamma=0.5)
 
 # Lists to keep track of progress
 img_list = []
@@ -312,7 +307,7 @@ iters = 0
 
 print("Starting Training Loop...")
 # For each epoch
-for epoch in range(num_epochs):
+for epoch in range(args.epochs):
     acc_Y = 0
     acc_G = 0
     # For each batch in the dataloader
@@ -436,7 +431,7 @@ for epoch in range(num_epochs):
         # Output training stats
         if i % 20 == 1:
             print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tLoss_C: %.4f\tD(x,y): %.4f\tD(G(z,y),y): %.4f\nD(x,C(x)): %.4f\tC(y): %.4f\tC(G(z,y)): %.4f\tDC(x): %.4f\tDC(G(z)): %.4f'
-                  % (epoch, num_epochs, i, len(trainloader),
+                  % (epoch, args.epochs, i, len(trainloader),
                      errD.item(), errG.item(), errC.item(), D_X, D_G, D_C, acc_Y / (i + 1), acc_G / (i + 1), DC_X, DC_G))
 
         # Save Losses for plotting later
@@ -447,7 +442,7 @@ for epoch in range(num_epochs):
 
 
         # Check how the generator is doing by saving G's output on fixed_noise
-        if (iters % 300 == 0) or ((epoch == num_epochs-1) and (i == len(trainloader)-1)):
+        if (iters % 300 == 0) or ((epoch == args.epochs-1) and (i == len(trainloader)-1)):
             with torch.no_grad():
                 fake = netG(real_paint[:reps * n_classes], fixed_class).detach().cpu()
             img_list.append(vutils.make_grid(fake, nrow=10, padding=2, normalize=True))
