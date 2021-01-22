@@ -30,7 +30,8 @@ parser.add_argument("-nc", "--num_channels", type=int, default=3)
 parser.add_argument("-ngpu", "--ngpu", type=int, default=1)
 # Model parameters
 parser.add_argument("-ncf", "--ncf", type=int, default=6)
-parser.add_argument("-ngf", "--ngf", type=int, default=128)
+parser.add_argument("-ncf", "--ncf", type=int, default=6)
+parser.add_argument("-l", "--load", action="store_false")
 # Hyperparameters
 parser.add_argument("-lr", "--lr", type=float, default=1e-5)
 parser.add_argument("-lrC", "--lrC", type=float, default=1e-4)
@@ -50,7 +51,7 @@ dset = ['vg2monet', 'photo']
 # Root directories for dataset
 dataroot = 'data'
 imgroot = 'figs'
-modelroot = os.path.join(dataroot, dset[dset_ind], 'model')
+modelroot = os.path.join(dataroot, dset[1], 'model')
 
 if not os.path.exists(imgroot):
     os.mkdir(imgroot)
@@ -78,13 +79,13 @@ def make_weights_for_balanced_classes(images, nclasses):
 
 # We can use an image folder dataset the way we have it setup.
 # Create the dataset
-dataset = tvdset.ImageFolder(os.path.join(dataroot, dset[2]), transform=transforms.Compose([
+dataset = tvdset.ImageFolder(os.path.join(dataroot, dset[0]), transform=transforms.Compose([
                                transforms.Resize(image_size),
                                transforms.CenterCrop(image_size),
                                transforms.ToTensor(),
                            ]))
 
-dataset2 = tvdset.ImageFolder(os.path.join(dataroot, dset[3]), transform=transforms.Compose([
+dataset2 = tvdset.ImageFolder(os.path.join(dataroot, dset[1]]), transform=transforms.Compose([
                                transforms.Resize(image_size),
                                transforms.CenterCrop(image_size),
                                transforms.ToTensor(),
