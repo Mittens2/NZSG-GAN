@@ -8,7 +8,7 @@ This code runs a GAN based on the network zero-sum framework (see [paper](https:
 * torchvision
 * PIL
 
-## Running Instruction
+## Running Instructions
 
 The script can be run with the following arguments, 
 
