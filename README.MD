@@ -26,3 +26,9 @@ The script can be run with the following arguments,
         -lr, --lr       learning rate for generator and discriminator
         -lrC, --lrC     learning rate for classifier
         -be, --beta     beta1 used by Adam optimizer
+
+## Results
+
+Here is an example of the images output by the net when fed with real images.
+
+![exmaple output](figs/example.png)
